@@ -5,10 +5,6 @@ var DefaultModelAliases = map[string]string{
 	"gemeni": "gemini-3.6-flash",
 	"гемини": "gemini-3.6-flash",
 
-	"gpt":      "openai/gpt-5.6-terra",
-	"гпт":      "openai/gpt-5.6-terra",
-	"клод":     "anthropic/claude-sonnet-5",
-	"claude":   "anthropic/claude-sonnet-5",
 	"дипсик":   "deepseek/deepseek-v4-flash",
 	"deepseek": "deepseek/deepseek-v4-flash",
 

@@ -69,25 +69,7 @@ func TestParser_Parse(t *testing.T) {
 			wantPrompt: "привет",
 		},
 		{
-			name:       "совместимость: look перед моделью игнорируется",
-			text:       "look gpt-4 привет",
-			wantModel:  "gpt-4",
-			wantPrompt: "привет",
-		},
-		{
-			name:       "совместимость: лук перед моделью игнорируется",
-			text:       "лук claude-3 расскажи анекдот",
-			wantModel:  "claude-3",
-			wantPrompt: "расскажи анекдот",
-		},
-		{
-			name:       "совместимость: регистр ключевого слова не важен",
-			text:       "Look GPT-4 привет",
-			wantModel:  "GPT-4",
-			wantPrompt: "привет",
-		},
-		{
-			name:       "looking — не ключевое слово, это модель",
+			name:       "любое первое слово трактуется как модель",
 			text:       "looking good",
 			wantModel:  "looking",
 			wantPrompt: "good",
@@ -98,14 +80,9 @@ func TestParser_Parse(t *testing.T) {
 			wantCode: domain.CodeEmptyText,
 		},
 		{
-			name:     "только ключевое слово look",
+			name:     "одно слово — модель без запроса",
 			text:     "look",
-			wantCode: domain.CodeModelMissing,
-		},
-		{
-			name:     "только ключевое слово лук",
-			text:     "лук",
-			wantCode: domain.CodeModelMissing,
+			wantCode: domain.CodePromptMissing,
 		},
 		{
 			name:     "нет запроса",
@@ -137,18 +114,5 @@ func TestParser_Parse(t *testing.T) {
 				t.Errorf("prompt: ожидалось %q, получено %q", tt.wantPrompt, got.Prompt)
 			}
 		})
-	}
-}
-
-func TestParser_Keywords(t *testing.T) {
-	p := New("start", "го")
-	kws := p.Keywords()
-	if len(kws) != 2 || kws[0] != "start" || kws[1] != "го" {
-		t.Fatalf("ожидались ключевые слова [start го], получено %v", kws)
-	}
-	// изменение копии не должно влиять на парсер
-	kws[0] = "hack"
-	if p.Keywords()[0] != "start" {
-		t.Fatal("Keywords вернул ссылку на внутренний слайс вместо копии")
 	}
 }

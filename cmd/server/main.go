@@ -1,4 +1,3 @@
-// Точка входа look-backend.
 package main
 
 import (

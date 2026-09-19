@@ -22,7 +22,6 @@ type AiConfig struct {
 
 type Config struct {
 	Addr               string        // адрес HTTP-сервера, например ":8080"
-	Keywords           []string      // ключевые слова старого формата
 	ProviderTimeout    time.Duration // таймаут одного обращения к провайдеру
 	MaxBodyBytes       int64         // лимит размера тела запроса
 	LogFormat          string        // text | json
@@ -30,8 +29,6 @@ type Config struct {
 
 	ModelAliases map[string]string
 
-	OpenAI     AiConfig
-	Anthropic  AiConfig
 	Gemini     AiConfig
 	OpenRouter AiConfig
 }
@@ -47,42 +44,15 @@ func Load() (Config, error) {
 	if cfg.LogFormat != "text" && cfg.LogFormat != "json" {
 		return Config{}, fmt.Errorf("LOOK_LOG_FORMAT: допустимые значения text, json (сейчас %q)", cfg.LogFormat)
 	}
-	if cfg.Keywords, err = envList("LOOK_KEYWORDS", []string{"start", "старт"}); err != nil {
-		return Config{}, err
-	}
 	if cfg.ProviderTimeout, err = envDuration("LOOK_PROVIDER_TIMEOUT", 60*time.Second); err != nil {
 		return Config{}, err
 	}
 	if cfg.MaxBodyBytes, err = envInt64("LOOK_MAX_BODY_BYTES", 1<<20); err != nil {
 		return Config{}, err
 	}
-	if cfg.MaxHistoryMessages, err = envInt("LOOK_MAX_HISTORY_MESSAGES", 40); err != nil {
-		return Config{}, err
-	}
-
-	cfg.OpenAI.APIKey = env("OPENAI_API_KEY", keys.OpenAI)
-	if cfg.OpenAI.Models, err = envList("OPENAI_MODELS", keys.OpenAIModels); err != nil {
-		return Config{}, err
-	}
-	if cfg.OpenAI.MaxTokens, err = envInt("OPENAI_MAX_TOKENS", 0); err != nil {
-		return Config{}, err
-	}
-	if cfg.OpenAI.Timeout, err = envDuration("OPENAI_TIMEOUT", 0); err != nil {
-		return Config{}, err
-	}
-
-	cfg.Anthropic.APIKey = env("ANTHROPIC_API_KEY", keys.Anthropic)
-	if cfg.Anthropic.Models, err = envList("ANTHROPIC_MODELS", keys.AnthropicModels); err != nil {
-		return Config{}, err
-	}
-	if cfg.Anthropic.MaxTokens, err = envInt("ANTHROPIC_MAX_TOKENS", 1024); err != nil {
-		return Config{}, err
-	}
-	if cfg.Anthropic.Timeout, err = envDuration("ANTHROPIC_TIMEOUT", 0); err != nil {
-		return Config{}, err
-	}
 
 	cfg.Gemini.APIKey = env("GEMINI_API_KEY", keys.Gemini)
+	cfg.Gemini.BaseURL = env("GEMINI_BASE_URL", keys.GeminiBaseURL)
 	if cfg.Gemini.Models, err = envList("GEMINI_MODELS", keys.GeminiModels); err != nil {
 		return Config{}, err
 	}
@@ -94,6 +64,7 @@ func Load() (Config, error) {
 	}
 
 	cfg.OpenRouter.APIKey = env("OPENROUTER_API_KEY", keys.OpenRouter)
+	cfg.OpenRouter.BaseURL = env("OPENROUTER_BASE_URL", keys.OpenRouterBaseURL)
 	if cfg.OpenRouter.Models, err = envList("OPENROUTER_MODELS", keys.OpenRouterModels); err != nil {
 		return Config{}, err
 	}

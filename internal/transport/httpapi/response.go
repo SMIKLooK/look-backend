@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"look-backend/internal/domain"
+	"look-backend/internal/provider"
 )
 
 type errorBody struct {
@@ -27,6 +28,11 @@ type okEnvelope struct {
 	Provider  string `json:"provider"`
 	Answer    string `json:"answer"`
 	ElapsedMS int64  `json:"elapsed_ms"`
+}
+
+type modelsResponse struct {
+	Aliases   map[string]string `json:"aliases"`
+	Providers []provider.Info   `json:"providers"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

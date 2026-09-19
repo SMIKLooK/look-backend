@@ -1,6 +1,3 @@
-// Package app собирает компоненты приложения и управляет его жизненным циклом.
-// Здесь выполняется вся компоновка зависимостей: конфигурация → провайдеры →
-// реестр → сервис → HTTP-обработчики → сервер.
 package app
 
 import (
@@ -10,20 +7,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"look-backend/internal/config"
 	"look-backend/internal/parser"
 	"look-backend/internal/provider"
-	"look-backend/internal/provider/anthropic"
-	"look-backend/internal/provider/echo"
 	"look-backend/internal/provider/gemini"
-	"look-backend/internal/provider/openai"
 	"look-backend/internal/provider/openrouter"
 	"look-backend/internal/service"
-	"look-backend/internal/storage"
-	httpapi "look-backend/internal/transport/httpapi"
+	"look-backend/internal/transport/httpapi"
 )
 
 // App — собранное приложение: зависимости, логгер, HTTP-сервер.
@@ -38,33 +32,6 @@ func New(cfg config.Config) *App {
 	log := newLogger(cfg.LogFormat)
 
 	registry := provider.NewRegistry()
-	registry.Register(echo.New()) // тестовый провайдер доступен всегда
-
-	if cfg.OpenAI.APIKey != "" {
-		registry.Register(openai.New(openai.Config{
-			APIKey:    cfg.OpenAI.APIKey,
-			BaseURL:   cfg.OpenAI.BaseURL,
-			Models:    cfg.OpenAI.Models,
-			MaxTokens: cfg.OpenAI.MaxTokens,
-			Timeout:   cfg.OpenAI.Timeout,
-		}))
-		log.Info("провайдер подключён", "provider", "openai", "base_url", cfg.OpenAI.BaseURL)
-	} else {
-		log.Info("провайдер отключён: не задан API-ключ", "provider", "openai", "env", "OPENAI_API_KEY")
-	}
-
-	if cfg.Anthropic.APIKey != "" {
-		registry.Register(anthropic.New(anthropic.Config{
-			APIKey:    cfg.Anthropic.APIKey,
-			BaseURL:   cfg.Anthropic.BaseURL,
-			Models:    cfg.Anthropic.Models,
-			MaxTokens: cfg.Anthropic.MaxTokens,
-			Timeout:   cfg.Anthropic.Timeout,
-		}))
-		log.Info("провайдер подключён", "provider", "anthropic", "base_url", cfg.Anthropic.BaseURL)
-	} else {
-		log.Info("провайдер отключён: не задан API-ключ", "provider", "anthropic", "env", "ANTHROPIC_API_KEY")
-	}
 
 	if cfg.Gemini.APIKey != "" {
 		registry.Register(gemini.New(gemini.Config{
@@ -96,17 +63,17 @@ func New(cfg config.Config) *App {
 
 	registry.SetAliases(cfg.ModelAliases)
 
-	// История диалогов живёт в памяти процесса; для персистентности
-	// (PostgreSQL/SQLite) реализуйте storage.Store и подставьте сюда.
-	historyStore := storage.NewMemoryStore(24*time.Hour, 10*time.Minute)
-
-	svc := service.New(parser.New(cfg.Keywords...), registry, historyStore, cfg.ProviderTimeout, cfg.MaxHistoryMessages)
-
+	// Сборка слоёв: parser → service → httpapi, маршруты — в mux.
+	svc := service.New(parser.New(), registry, cfg.ProviderTimeout)
+	handler := httpapi.NewHandler(svc, cfg.MaxBodyBytes, log)
 	mux := http.NewServeMux()
-	httpapi.NewHandler(svc, cfg.MaxBodyBytes, log).RegisterRoutes(mux)
-	handler := httpapi.LoggingMiddleware(log, httpapi.RecoverMiddleware(log, mux))
+	handler.RegisterRoutes(mux)
 
-	return &App{cfg: cfg, log: log, server: httpapi.NewServer(cfg.Addr, handler)}
+	return &App{
+		cfg:    cfg,
+		log:    log,
+		server: httpapi.NewServer(cfg.Addr, httpapi.LoggingMiddleware(log, httpapi.RecoverMiddleware(log, mux))),
+	}
 }
 
 // Run запускает HTTP-сервер и корректно останавливает его по SIGINT/SIGTERM.
@@ -116,7 +83,7 @@ func (a *App) Run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		a.log.Info("сервер запущен", "addr", a.cfg.Addr, "keywords", a.cfg.Keywords)
+		a.log.Info("сервер запущен", "addr", a.cfg.Addr, "api", apiURL(a.cfg.Addr))
 		errCh <- a.server.ListenAndServe()
 	}()
 
@@ -136,6 +103,14 @@ func (a *App) Run() error {
 		a.log.Info("сервер остановлен")
 		return nil
 	}
+}
+
+// apiURL — адрес API для подключения клиентов; ":8080" означает localhost.
+func apiURL(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "http://localhost" + addr + "/api/v1/process"
+	}
+	return "http://" + addr + "/api/v1/process"
 }
 
 func newLogger(format string) *slog.Logger {

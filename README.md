@@ -12,47 +12,23 @@ HTTP-сервис на Go: принимает JSON с текстом, берёт
 Примеры:
 
 ```text
-gpt-4o Привет, кто ты?
 gemini какая погода сегодня?
 gemeni расскажи анекдот
-claude-3-sonnet переведи "привет" на английский
 ```
 
 Правила разбора:
 
 - **модель — первое слово текста** (один токен до пробела), далее — запрос;
-  знаки препинания между моделью и запросом допустимы (`gpt-4o, привет`,
-  `gpt-4o: привет`);
-- ключевые слова `look`/`лук` **больше не требуются**: если старый формат
-  (`look gpt-4o привет`) ещё приходит, ключевое слово в начале текста
-  просто игнорируется — набор настраивается переменной `LOOK_KEYWORDS`;
-- короткие имена работают из коробки: `гпт`/`gpt`, `клод`/`claude`,
-  `дипсик`/`deepseek` (через OpenRouter) и `гемини`/`gemeni`/`gemini`
-  (напрямую в Google). Полный список — в `internal/config/config.go`,
+  знаки препинания между моделью и запросом допустимы (`gemeni, привет`,
+  `gemeni: привет`);
+- короткие имена работают из коробки: `дипсик`/`deepseek` (через OpenRouter) и `гемини`/`gemeni`/`gemini`
+  (напрямую в Google).Полный список—в `internal/model_aliases/model_aliases.go`,
   свои добавляются через `LOOK_MODEL_ALIASES`.
 
 ## Быстрый старт
 
 ```bash
 go run ./cmd/server
-```
-
-Проверка без API-ключей (провайдер `echo` возвращает запрос как есть):
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/process \
-  -H 'Content-Type: application/json' \
-  -d '{"text": "echo Привет! Кто ты?"}'
-```
-
-```json
-{
-  "status": "ok",
-  "model": "echo",
-  "provider": "echo",
-  "answer": "echo → Привет! Кто ты?",
-  "elapsed_ms": 0
-}
 ```
 
 ### Реальный ответ от модели
@@ -63,8 +39,6 @@ curl -s -X POST http://localhost:8080/api/v1/process \
 ```go
 var (
 	Gemini    = "AIza..."
-	OpenAI    = ""
-	Anthropic = ""
 )
 ```
 
@@ -91,9 +65,7 @@ curl -s -X POST http://localhost:8080/api/v1/process \
 
 `gemeni` — псевдоним, к Google уйдёт модель `gemini-3.6-flash` (Google
 рекомендует её новым ключам вместо выведенного из обращения
-`gemini-2.5-flash`); точное имя видно в поле `model` ответа. Аналогично работают провайдеры `openai` и
-`anthropic` — впишите их ключи в тот же файл. Переменные окружения
-(`GEMINI_API_KEY` и т.п.) по-прежнему работают и имеют приоритет — удобно
+`gemini-2.5-flash`); точное имя видно в поле `model` ответа, (`GEMINI_API_KEY` и т.п.) по-прежнему работают и имеют приоритет — удобно
 для деплоя, не меняя код.
 
 ### Много моделей через OpenRouter
@@ -108,10 +80,6 @@ OpenRouter. Впишите ключ в `keys.go` (`OpenRouter = "sk-or-..."`) �
 
 | Текст | Кому уйдёт |
 |---|---|
-| `гпт какая погода сегодня?` | `openai/gpt-5.6-terra` |
-| `gpt какая погода сегодня?` | `openai/gpt-5.6-terra` |
-| `клод расскажи анекдот` | `anthropic/claude-sonnet-5` |
-| `claude расскажи анекдот` | `anthropic/claude-sonnet-5` |
 | `дипсик посчитай 2^20` | `deepseek/deepseek-v4-flash` |
 | `deepseek посчитай 2^20` | `deepseek/deepseek-v4-flash` |
 | `google/gemini-3.8-flash привет` | любой слаг каталога |
@@ -165,39 +133,11 @@ OpenRouter сверяйте ID с каталогом. Модель `nemotron-3.5
 модель есть в `OpenRouterModels` (в keys.go или `OPENROUTER_MODELS`):
 `gpt-5.6-terra ...` развернётся в `openai/gpt-5.6-terra`.
 
-> Если OpenRouter отвечает `Access denied by security policy` — их защита
-> блокирует регион/IP сети, откуда работает сервер. Обходится тем же
-> способом, что и гео-блок Google: бесплатный Cloudflare Worker с кодом
->
-> ```js
-> export default {
->   async fetch(request) {
->     const url = new URL(request.url);
->     url.host = "openrouter.ai";
->     return fetch(new Request(url, request));
->   }
-> }
-> ```
->
-> и адрес воркера в keys.go: `OpenRouterBaseURL = "https://имя.workers.dev/api/v1"`.
-
-> ⚠️ Файл с ключами нельзя коммитить в публичный репозиторий — если код
-> уходит в открытый доступ, держите ключи только в переменных окружения.
-
-Если Google отвечает `User location is not supported for the API use`,
-регион, откуда уходят запросы, не поддерживается Gemini API. В этом случае
-впишите в [internal/keys/keys.go](internal/keys/keys.go) адрес прокси
-в поддерживаемом регионе (`GeminiBaseURL`), а ключ оставьте как есть.
-Варианты: собственный реверс-прокси на VPS/Cloudflare Worker, который
-форвардит запросы в `generativelanguage.googleapis.com`, либо агрегаторы
-вроде OpenRouter — для них уже готов провайдер `openai`: впишите
-`OpenAIBaseURL = "https://openrouter.ai/api/v1"` и ключ OpenRouter в `OpenAI`.
-
 ## API
 
 ### `POST /api/v1/process`
 
-Тело: `{"text": "<keyword> <модель> <запрос>"}`.
+Тело: `{"text": "<модель> <запрос>"}`.
 
 Успех — `200 OK`:
 
@@ -223,44 +163,10 @@ OpenRouter сверяйте ID с каталогом. Модель `nemotron-3.5
 | 504 | `TIMEOUT` | истёк таймаут обращения к провайдеру |
 | 500 | `INTERNAL` | внутренняя ошибка сервера |
 
-### `POST /api/v1/chat` — диалог с памятью
-
-Сама модель ничего не помнит: диалог — это массив сообщений, который клиент
-присылает целиком при каждом запросе. Этот эндпоинт делает это за вас:
-сохраняет историю сессии и отправляет её модели вместе с новым запросом.
-
-Тело: `{"session_id": "...", "text": "<модель> <запрос>"}`. Если
-`session_id` не указан — сервер сгенерирует новый и вернёт его; дальше
-передавайте его в каждом запросе, чтобы модель видела предыдущие реплики.
-
-```json
-{
-  "status": "ok",
-  "session_id": "9f2c7e1a4b0d",
-  "model": "openai/gpt-5.6-terra",
-  "provider": "openrouter",
-  "answer": "…",
-  "elapsed_ms": 512,
-  "messages": 5
-}
-```
-
-`messages` — сколько сообщений ушло модели (история + новый запрос);
-верхняя граница настраивается `LOOK_MAX_HISTORY_MESSAGES`, чтобы контекст
-не разрастался бесконечно. Старые запросы через `POST /api/v1/process`
-работают как раньше — без истории.
-
-### `GET /api/v1/chat/{session_id}` — история сессии
-
-```json
-{"status": "ok", "session_id": "9f2c7e1a4b0d", "messages": [{"role": "user", "content": "…"}, {"role": "assistant", "content": "…"}]}
-```
-
-### `DELETE /api/v1/chat/{session_id}` — очистить историю
 
 ### `GET /api/v1/models`
 
-Список ключевых слов, псевдонимов моделей и провайдеров с их моделями.
+Список псевдонимов моделей и провайдеров с их моделями.
 
 ### `GET /healthz`
 
@@ -273,27 +179,15 @@ OpenRouter сверяйте ID с каталогом. Модель `nemotron-3.5
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `LOOK_ADDR` | `:8080` | адрес HTTP-сервера |
-| `LOOK_KEYWORDS` | `look,лук` | ключевые слова старого формата, игнорируются перед моделью |
-| `LOOK_MODEL_ALIASES` | `gemini=gemini-3.6-flash,gemeni=gemini-3.6-flash,claude=claude-sonnet-4-20250514` | псевдонимы моделей `имя=модель` |
+| `LOOK_MODEL_ALIASES` | см. `internal/model_aliases/model_aliases.go` | дополнительные псевдонимы моделей `имя=модель` |
 | `LOOK_PROVIDER_TIMEOUT` | `60s` | таймаут одного обращения к провайдеру |
 | `LOOK_MAX_BODY_BYTES` | `1048576` | лимит размера тела запроса |
-| `LOOK_MAX_HISTORY_MESSAGES` | `40` | максимум сообщений сессии, отправляемых модели (`0` — без ограничения) |
 | `LOOK_LOG_FORMAT` | `text` | формат логов: `text` или `json` |
 | `GEMINI_API_KEY` | из `internal/keys/keys.go` | без ключа провайдер gemini отключён |
 | `GEMINI_BASE_URL` | из `keys.go` или официальный API | адрес прокси в поддерживаемом регионе |
 | `GEMINI_MODELS` | `gemini-3.8-flash,gemini-3.6-flash,gemini-2.5-pro` | список моделей |
 | `GEMINI_MAX_TOKENS` | `0` (не отправлять) | лимит `maxOutputTokens` |
 | `GEMINI_TIMEOUT` | — | отдельный таймаут HTTP-клиента |
-| `OPENAI_API_KEY` | из `internal/keys/keys.go` | без ключа провайдер openai отключён |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | любой OpenAI-совместимый API |
-| `OPENAI_MODELS` | `gpt-4o,gpt-4o-mini` | список моделей |
-| `OPENAI_MAX_TOKENS` | `0` (не отправлять) | лимит токенов ответа |
-| `OPENAI_TIMEOUT` | — | отдельный таймаут HTTP-клиента |
-| `ANTHROPIC_API_KEY` | из `internal/keys/keys.go` | без ключа провайдер anthropic отключён |
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | базовый URL API |
-| `ANTHROPIC_MODELS` | `claude-sonnet-4-20250514,...` | список моделей |
-| `ANTHROPIC_MAX_TOKENS` | `1024` | обязателен для API Anthropic |
-| `ANTHROPIC_TIMEOUT` | — | отдельный таймаут HTTP-клиента |
 | `OPENROUTER_API_KEY` | из `internal/keys/keys.go` | без ключа провайдер openrouter отключён |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | базовый URL API |
 | `OPENROUTER_MODELS` | популярные модели (см. README) | список слагов `вендор/модель` |
@@ -302,28 +196,7 @@ OpenRouter сверяйте ID с каталогом. Модель `nemotron-3.5
 
 Модель попадает к провайдеру, если совпадает с одной из `*_MODELS`
 (регистр не важен) или начинается с одного из префиксов провайдера
-(`gemini` — у gemini; `gpt`, `o1`, `o3`, `o4` — у openai; `claude` — у anthropic).
-
-## Архитектура
-
-```
-cmd/server/            точка входа: флаги, конфигурация, запуск app
-internal/
-  domain/              общие типы и доменные ошибки (код ошибки → HTTP-статус)
-  keys/                API-ключи и списки моделей, вписанные в код
-  config/              чтение конфигурации (keys.go по умолчанию, env поверх)
-  parser/              разбор текста: keyword → модель + запрос (+ тесты)
-  provider/            контракт Provider и Registry (в т.ч. псевдонимы моделей)
-    echo/              тестовый провайдер
-    gemini/            Google Gemini (/models/{model}:generateContent) (+ тесты)
-    openai/            OpenAI-совместимые API (/chat/completions)
-    anthropic/         Anthropic Claude (/v1/messages)
-    openrouter/        агрегатор OpenRouter — модели всех вендоров (+ тесты)
-  service/             бизнес-логика: parser + registry → ответ модели
-  transport/httpapi/   HTTP-слой: обработчики, JSON, middleware, сервер
-  storage/             история диалогов: контракт Store + реализация в памяти
-  app/                 компоновка всего приложения + graceful shutdown
-```
+(`gemini` — у gemini;)
 
 Зависимости направлены строго в одну сторону:
 
@@ -335,45 +208,6 @@ transport/httpapi → service → parser, provider/* → domain
 пакет, который ничего не знает об HTTP и соседях. Тестовый провайдер `echo`,
 подменный HTTP-сервер в тестах `gemini` и заглушки в тестах `service`
 позволяют проверять сервис без ключей и сети.
-
-## История диалога и PostgreSQL
-
-История хранится за интерфейсом `storage.Store`; сейчас реализация —
-в памяти процесса (`internal/storage/memory.go`): неактивные сессии
-автоматически чистятся (24 часа / проверка раз в 10 минут), при перезапуске
-сервера история теряется.
-
-Если нужна персистентность или несколько инстансов за балансировщиком —
-добавьте PostgreSQL: установите драйвер (`go get github.com/jackc/pgx/v5`),
-создайте `internal/storage/postgres/postgres.go`, реализующий тот же
-интерфейс (`Append` → `INSERT`, `History` → `SELECT ... ORDER BY id`,
-`Reset` → `DELETE`), и подставьте его в `internal/app/app.go` вместо
-`storage.NewMemoryStore`. Таблицы для старта:
-
-```sql
-CREATE TABLE messages (
-    id         BIGSERIAL PRIMARY KEY,
-    session_id TEXT        NOT NULL,
-    role       TEXT        NOT NULL,
-    content    TEXT        NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX ON messages (session_id, id);
-```
-
-## Как добавить нового провайдера
-
-1. Создайте пакет `internal/provider/<имя>/` и реализуйте интерфейс
-   `provider.Provider` (`Name`, `Models`, `Supports`, `Complete`) —
-   ориентир: `internal/provider/gemini/gemini.go`.
-2. Добавьте в `internal/config/config.go` чтение настроек нового провайдера,
-   а его ключ — в `internal/keys/keys.go`.
-3. Зарегистрируйте провайдера в `internal/app/app.go`
-   (`registry.Register(...)`); при необходимости — псевдонимы в
-   `LOOK_MODEL_ALIASES`.
-4. Добавьте тесты с подменным HTTP-сервером (`httptest.NewServer`).
-
-HTTP-слой, парсер и сервис при этом менять не нужно.
 
 ## Тестирование через Postman
 
