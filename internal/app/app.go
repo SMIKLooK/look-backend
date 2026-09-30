@@ -135,7 +135,10 @@ func New(cfg config.Config) *App {
 func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	return a.run(ctx)
+}
 
+func (a *App) run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		a.log.Info("сервер запущен", "addr", a.cfg.Addr, "api", apiURL(a.cfg.Addr))
@@ -150,7 +153,7 @@ func (a *App) Run() error {
 		return err
 	case <-ctx.Done():
 		a.log.Info("получен сигнал остановки, завершаем работу")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), a.shutdownGrace())
 		defer cancel()
 		if err := a.server.Shutdown(shutdownCtx); err != nil {
 			return err
@@ -158,6 +161,18 @@ func (a *App) Run() error {
 		a.log.Info("сервер остановлен")
 		return nil
 	}
+}
+
+const (
+	defaultShutdownGrace = 60 * time.Second
+	shutdownWriteBuffer  = 5 * time.Second
+)
+
+func (a *App) shutdownGrace() time.Duration {
+	if a.cfg.ProviderTimeout <= 0 {
+		return defaultShutdownGrace
+	}
+	return a.cfg.ProviderTimeout + shutdownWriteBuffer
 }
 
 // apiURL — адрес API для подключения клиентов; ":8080" означает localhost.

@@ -74,3 +74,50 @@ func TestClient_Supports(t *testing.T) {
 		t.Error("чужие модели не должны поддерживаться")
 	}
 }
+
+func TestClient_EmptyChoices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[]}`)
+	}))
+	defer srv.Close()
+
+	client := New(Config{APIKey: "test-key", BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := client.Complete(context.Background(), domain.Request{
+		Model:    "gpt-4o",
+		Messages: []domain.Message{{Role: "user", Content: "вопрос"}},
+	})
+	if err == nil {
+		t.Fatal("ожидалась ошибка, получен успех")
+	}
+	if !strings.Contains(err.Error(), "пустой список choices") {
+		t.Errorf("в ошибке нет объяснения про choices: %v", err)
+	}
+}
+
+func TestClient_Models(t *testing.T) {
+	client := New(Config{})
+	models := client.Models()
+	if len(models) == 0 {
+		t.Fatal("без каталога должен использоваться встроенный список моделей")
+	}
+	models[0] = "испорчено"
+	if client.Models()[0] == "испорчено" {
+		t.Error("Models вернул не копию: мутации видны в клиенте")
+	}
+}
+
+func TestClient_ProviderUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url, httpClient := srv.URL, srv.Client()
+	srv.Close()
+
+	client := New(Config{APIKey: "test-key", BaseURL: url, HTTPClient: httpClient})
+	_, err := client.Complete(context.Background(), domain.Request{
+		Model:    "gpt-4o",
+		Messages: []domain.Message{{Role: "user", Content: "вопрос"}},
+	})
+	if code := domain.ErrorCode(err); code != domain.CodeProviderFailed {
+		t.Errorf("ожидался код %s, получен %s (%v)", domain.CodeProviderFailed, code, err)
+	}
+}

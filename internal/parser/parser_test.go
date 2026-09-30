@@ -80,6 +80,11 @@ func TestParser_Parse(t *testing.T) {
 			wantCode: domain.CodeEmptyText,
 		},
 		{
+			name:     "текст из одних разделителей — модели нет",
+			text:     ",,, : !",
+			wantCode: domain.CodeModelMissing,
+		},
+		{
 			name:     "одно слово — модель без запроса",
 			text:     "look",
 			wantCode: domain.CodePromptMissing,
