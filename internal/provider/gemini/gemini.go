@@ -4,6 +4,8 @@ package gemini
 import (
 	"net/http"
 	"strings"
+
+	"look-backend/internal/provider/kit"
 )
 
 type Client struct {
@@ -28,13 +30,7 @@ func New(cfg Config) *Client {
 	if len(prefixes) == 0 {
 		prefixes = defaultModelPrefixes
 	}
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{}
-		if cfg.Timeout > 0 {
-			httpClient.Timeout = cfg.Timeout
-		}
-	}
+	httpClient := kit.NewHTTPClient(cfg.Timeout, cfg.HTTPClient)
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    baseURL,
@@ -50,10 +46,8 @@ func (c *Client) Name() string { return "gemini" }
 func (c *Client) Models() []string { return append([]string(nil), c.models...) }
 
 func (c *Client) Supports(model string) bool {
-	for _, known := range c.models {
-		if strings.EqualFold(known, model) {
-			return true
-		}
+	if kit.ContainsFold(c.models, model) {
+		return true
 	}
 	m := strings.ToLower(model)
 	for _, p := range c.prefixes {

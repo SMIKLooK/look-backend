@@ -11,8 +11,6 @@ type Server struct {
 	srv *http.Server
 }
 
-// NewServer создаёт сервер. WriteTimeout должен быть больше таймаута
-// обращения к провайдерам (LOOK_PROVIDER_TIMEOUT).
 func NewServer(addr string, handler http.Handler) *Server {
 	return &Server{srv: &http.Server{
 		Addr:              addr,

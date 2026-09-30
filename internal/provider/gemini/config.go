@@ -11,8 +11,6 @@ var defaultModels = []string{"gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5
 
 var defaultModelPrefixes = []string{"gemini"}
 
-const maxResponseBytes = 8 << 20
-
 // Config — настройки клиента Gemini.
 type Config struct {
 	APIKey        string

@@ -1,0 +1,196 @@
+{
+	"info": {
+		"name": "look-backend",
+		"description": "Запросы к локальному серверу look-backend. Адрес задаётся переменной коллекции baseUrl.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "healthz",
+			"request": {
+				"method": "GET",
+				"url": {
+					"raw": "{{baseUrl}}/healthz",
+					"host": ["{{baseUrl}}"],
+					"path": ["healthz"]
+				}
+			},
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+							"pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "models",
+			"request": {
+				"method": "GET",
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/models",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "models"]
+				}
+			},
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+							"pm.test('есть aliases', () => pm.expect(pm.response.json().aliases).to.be.an('object'));",
+							"pm.test('есть providers', () => pm.expect(pm.response.json().providers).to.be.an('array'));"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "process — успех",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"text\": \"gemeni какая погода сегодня?\"}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/process",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "process"]
+				}
+			},
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+							"pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));",
+							"pm.test('есть ответ модели', () => pm.expect(pm.response.json().answer).to.not.be.empty);"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "process — пустой текст (400 EMPTY_TEXT)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"text\": \"   \"}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/process",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "process"]
+				}
+			},
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+							"pm.test('код EMPTY_TEXT', () => pm.expect(pm.response.json().error.code).to.eql('EMPTY_TEXT'));"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "process — неизвестная модель (400 UNKNOWN_MODEL)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"text\": \"nosuchmodel привет\"}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/process",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "process"]
+				}
+			},
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+							"pm.test('код UNKNOWN_MODEL', () => pm.expect(pm.response.json().error.code).to.eql('UNKNOWN_MODEL'));"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "process — некорректный JSON (400 INVALID_JSON)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "не json"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/process",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "process"]
+				}
+			},
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+							"pm.test('код INVALID_JSON', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_JSON'));"
+						]
+					}
+				}
+			]
+		}
+	]
+}

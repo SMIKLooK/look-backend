@@ -9,16 +9,13 @@ import (
 	"look-backend/internal/provider"
 )
 
+// Result — ответ сервиса прикладному слою. Формат JSON-ответа клиенту
+// задаёт transport/httpapi (okEnvelope), поэтому полей без json-тегов достаточно.
 type Result struct {
-	Model     string `json:"model"`
-	Provider  string `json:"provider"`
-	Answer    string `json:"answer"`
-	ElapsedMS int64  `json:"elapsed_ms"`
-}
-
-type ChatResult struct {
-	Result
-	SessionID string `json:"session_id"`
+	Model     string
+	Provider  string
+	Answer    string
+	ElapsedMS int64 // время обращения к провайдеру, мс
 }
 
 type Service struct {

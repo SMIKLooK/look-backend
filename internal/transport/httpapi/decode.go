@@ -3,14 +3,14 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 
 	"look-backend/internal/domain"
-	"net/http"
 )
 
 // decodeBody читает и разбирает JSON-тело запроса; при ошибке сама
 // формирует ответ и возвращает false.
-func (h *Handler) DecodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+func (h *Handler) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		var maxErr *http.MaxBytesError

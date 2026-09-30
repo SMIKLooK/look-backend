@@ -1,5 +1,3 @@
-// Package httpapi — транспортный слой: HTTP-обработчики, JSON-ответы,
-// middleware и сервер. Знает только о service и domain.
 package httpapi
 
 import (

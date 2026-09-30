@@ -7,6 +7,10 @@ import (
 	"look-backend/internal/service"
 )
 
+// ProcessPath — путь эндпоинта обработки текста; используется в маршрутах
+// и в подсказке при запуске (internal/app).
+const ProcessPath = "/api/v1/process"
+
 type Handler struct {
 	service      *service.Service
 	maxBodyBytes int64
@@ -20,16 +24,16 @@ func NewHandler(service *service.Service, maxBodyBytes int64, log *slog.Logger) 
 
 // RegisterRoutes регистрирует маршруты API в mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/process", h.handleProcess)
-	mux.HandleFunc("GET /api/v1/models", h.HandleModels)
-	mux.HandleFunc("GET /healthz", h.HandleHealth)
+	mux.HandleFunc("POST "+ProcessPath, h.handleProcess)
+	mux.HandleFunc("GET /api/v1/models", h.handleModels)
+	mux.HandleFunc("GET /healthz", h.handleHealth)
 }
 
 // handleProcess принимает {"text": "..."} и возвращает ответ модели.
 // Одиночный запрос без истории диалога.
 func (h *Handler) handleProcess(w http.ResponseWriter, r *http.Request) {
 	var req processRequest
-	if !h.DecodeBody(w, r, &req) {
+	if !h.decodeBody(w, r, &req) {
 		return
 	}
 
@@ -49,9 +53,7 @@ func (h *Handler) handleProcess(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleModels возвращает псевдонимы моделей и доступных
-// провайдеров с их моделями.
-func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, modelsResponse{
 		Aliases:   h.service.Aliases(),
 		Providers: h.service.Providers(),

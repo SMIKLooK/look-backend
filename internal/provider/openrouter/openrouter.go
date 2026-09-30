@@ -8,26 +8,20 @@
 package openrouter
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"look-backend/internal/domain"
+	"look-backend/internal/provider/kit"
 )
 
 const defaultBaseURL = "https://openrouter.ai/api/v1"
 
 // appTitle — необязательный заголовок X-Title: имя приложения в статистике OpenRouter.
 const appTitle = "look-backend"
-
-// maxResponseBytes — ограничение на размер тела ответа провайдера.
-const maxResponseBytes = 8 << 20
 
 // defaultModels — популярные модели OpenRouter (формат "vendor/model").
 // Полный каталог: https://openrouter.ai/models
@@ -42,6 +36,10 @@ var defaultModels = []string{
 	"z-ai/glm-5.3-flash",          // очень дешёвая
 	"meta-llama/llama-4-maverick", // открытая Llama 4
 }
+
+// errWAFBlocked — часть текста, которым OpenRouter WAF отвечает на запросы
+// из заблокированных регионов/сетей (HTTP 403, до проверки API-ключа).
+const errWAFBlocked = "Access denied by security policy"
 
 // Config — настройки клиента OpenRouter.
 type Config struct {
@@ -70,19 +68,12 @@ func New(cfg Config) *Client {
 	if len(models) == 0 {
 		models = defaultModels
 	}
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{}
-		if cfg.Timeout > 0 {
-			httpClient.Timeout = cfg.Timeout
-		}
-	}
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    baseURL,
 		models:     models,
 		maxTokens:  cfg.MaxTokens,
-		httpClient: httpClient,
+		httpClient: kit.NewHTTPClient(cfg.Timeout, cfg.HTTPClient),
 	}
 }
 
@@ -137,68 +128,15 @@ func slugSuffix(slug string) string {
 	return ""
 }
 
-type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type chatRequest struct {
-	Model     string        `json:"model"`
-	Messages  []chatMessage `json:"messages"`
-	MaxTokens int           `json:"max_tokens,omitempty"`
-}
-
-type chatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Success *bool           `json:"success"`
-	Error   json.RawMessage `json:"error"`
-}
-
-// errorMessage достаёт текст ошибки из ответа. OpenRouter присылает error
-// то объектом {"message": "..."} (ошибки API), то просто строкой
-// ("Access denied by security policy." — отказ WAF до проверки ключа).
-func (p *chatResponse) errorMessage() string {
-	if len(p.Error) == 0 {
-		return ""
-	}
-	var obj struct {
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(p.Error, &obj); err == nil && obj.Message != "" {
-		return obj.Message
-	}
-	var plain string
-	if err := json.Unmarshal(p.Error, &plain); err == nil {
-		return strings.TrimSpace(plain)
-	}
-	return ""
-}
-
-// errWAFBlocked — часть текста, которым OpenRouter WAF отвечает на запросы
-// из заблокированных регионов/сетей (HTTP 403, до проверки API-ключа).
-const errWAFBlocked = "Access denied by security policy"
-
 // Complete отправляет запрос в /chat/completions и возвращает текст ответа.
 func (c *Client) Complete(ctx context.Context, req domain.Request) (domain.Response, error) {
-	if err := ctx.Err(); err != nil {
-		return domain.Response{}, domain.WrapError(domain.CodeTimeout, err, "контекст отменён до запроса к openrouter")
-	}
-
 	slug := c.resolveSlug(req.Model)
-	payload := chatRequest{Model: slug, MaxTokens: c.maxTokens}
-	for _, m := range req.Messages {
-		payload.Messages = append(payload.Messages, chatMessage{Role: m.Role, Content: m.Content})
-	}
-	body, err := json.Marshal(payload)
+	body, err := kit.MarshalChat(slug, req.Messages, c.maxTokens)
 	if err != nil {
 		return domain.Response{}, domain.WrapError(domain.CodeInternal, err, "не удалось сериализовать запрос к openrouter")
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq, err := kit.NewRequest(ctx, http.MethodPost, c.baseURL+"/chat/completions", body)
 	if err != nil {
 		return domain.Response{}, domain.WrapError(domain.CodeInternal, err, "не удалось сформировать запрос к openrouter")
 	}
@@ -206,54 +144,36 @@ func (c *Client) Complete(ctx context.Context, req domain.Request) (domain.Respo
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("X-Title", appTitle)
 
-	httpResp, err := c.httpClient.Do(httpReq)
+	result, err := kit.Do(ctx, c.httpClient, c.Name(), httpReq)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return domain.Response{}, domain.WrapError(domain.CodeTimeout, err, "таймаут запроса к openrouter")
-		}
-		return domain.Response{}, domain.WrapError(domain.CodeProviderFailed, err, "openrouter недоступен")
-	}
-	defer httpResp.Body.Close()
-
-	raw, err := io.ReadAll(io.LimitReader(httpResp.Body, maxResponseBytes))
-	if err != nil {
-		return domain.Response{}, domain.WrapError(domain.CodeProviderFailed, err, "не удалось прочитать ответ openrouter")
+		return domain.Response{}, err
 	}
 
-	var parsed chatResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return domain.Response{}, domain.WrapError(domain.CodeProviderFailed, err,
-			"openrouter вернул некорректный ответ (HTTP %d): %s", httpResp.StatusCode, truncateBody(raw))
+	reply, parseErr := kit.ParseChat(result.Body)
+	if parseErr != nil {
+		return domain.Response{}, domain.WrapError(domain.CodeProviderFailed, parseErr,
+			"openrouter вернул некорректный ответ (HTTP %d): %s", result.StatusCode, kit.TruncateBody(result.Body))
 	}
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		errMsg := parsed.errorMessage()
-		if httpResp.StatusCode == http.StatusForbidden && strings.Contains(errMsg, errWAFBlocked) {
+	if result.StatusCode < 200 || result.StatusCode >= 300 {
+		if result.StatusCode == http.StatusForbidden && strings.Contains(reply.ErrText, errWAFBlocked) {
 			return domain.Response{}, domain.NewError(domain.CodeProviderFailed,
 				"openrouter блокирует запросы с этой сети (HTTP 403, WAF): регион/IP сервера не поддерживается. "+
 					"Это не ошибка кода и не проблема ключа — запросы не доходят до API. "+
 					"Решение: бесплатный прокси в поддерживаемом регионе (Cloudflare Worker, код в README) "+
 					"и его адрес в keys.go → OpenRouterBaseURL")
 		}
-		msg := fmt.Sprintf("HTTP %d", httpResp.StatusCode)
-		if errMsg != "" {
-			msg += ": " + errMsg
+		msg := fmt.Sprintf("HTTP %d", result.StatusCode)
+		if reply.ErrText != "" {
+			msg += ": " + reply.ErrText
 		}
 		return domain.Response{}, domain.NewError(domain.CodeProviderFailed, "ошибка openrouter: "+msg)
 	}
-	if len(parsed.Choices) == 0 {
+	if reply.Choices == 0 {
 		return domain.Response{}, domain.NewError(domain.CodeProviderFailed, "openrouter вернул пустой список choices")
 	}
 	return domain.Response{
 		Model:    slug,
 		Provider: c.Name(),
-		Content:  strings.TrimSpace(parsed.Choices[0].Message.Content),
+		Content:  reply.Content,
 	}, nil
-}
-
-func truncateBody(b []byte) string {
-	s := string(b)
-	if len(s) > 512 {
-		return s[:512] + "..."
-	}
-	return s
 }

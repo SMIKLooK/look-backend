@@ -1,0 +1,52 @@
+// Шаблон internal/keys/keys.go. Сам keys.go не хранится в git (там живут
+// ключи), поэтому после клонирования скопируйте файл и впишите ключи:
+//
+//	cp internal/keys/keys.go.example internal/keys/keys.go
+//
+// Значения из keys.go — лишь значения по умолчанию: переменные окружения
+// (GEMINI_API_KEY и т.п.) всегда имеют приоритет (см. .env.example).
+package keys
+
+var (
+	Gemini = ""
+
+	OpenRouter = ""
+
+	// GPTunneL — агрегатор в рублях (gptunnel.ru); ключ из личного кабинета.
+	GPTunnel = ""
+
+	// GigaChat (Сбер): Authorization-ключ из консоли developers.sber.ru —
+	// это base64("client_id:client_secret"). Можно вместо него задать пару
+	// GigaChatClientID + GigaChatClientSecret.
+	GigaChat             = ""
+	GigaChatClientID     = ""
+	GigaChatClientSecret = ""
+)
+
+// Базовые URL API; пусто — официальный адрес провайдера. Сюда ставится
+// адрес прокси в поддерживаемом регионе, если провайдер блокирует запросы
+// по географии (Gemini: HTTP 400 "User location is not supported",
+// OpenRouter: HTTP 403 WAF). Перекрывается переменными окружения
+// GEMINI_BASE_URL и OPENROUTER_BASE_URL.
+var (
+	GeminiBaseURL     = "" // официальный: https://generativelanguage.googleapis.com/v1beta
+	OpenRouterBaseURL = "" // официальный: https://openrouter.ai/api/v1
+	GPTunnelBaseURL   = "" // официальный: https://gptunnel.ru/v1
+	GigaChatBaseURL   = "" // официальный: https://gigachat.devices.sberbank.ru/api/v1
+)
+
+var (
+	GeminiModels     []string // например: []string{"gemini-3.8-flash", "gemini-3.6-flash"}
+	OpenRouterModels []string // например: []string{"google/gemini-3.8-flash", "openai/gpt-5.6-terra", "anthropic/claude-sonnet-5"}
+	GPTunnelModels   []string // например: []string{"gpt-4o", "claude-4.5-haiku"}; пусто — встроенный список
+	GigaChatModels   []string // например: []string{"GigaChat", "GigaChat-Pro"}; пусто — встроенный список
+)
+
+// ExtraModelAliases — дополнительные псевдонимы моделей:
+// короткое имя из текста → модель провайдера.
+// Базовые псевдонимы заданы в internal/model_aliases/model_aliases.go
+// (DefaultModelAliases и DefaultFreeModelAliases).
+var ExtraModelAliases = map[string]string{
+	// "gpt":      "gpt-4o",
+	// "новейшая": "gemini-3.8-flash",
+}

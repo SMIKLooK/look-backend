@@ -3,9 +3,6 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"look-backend/internal/keys"
@@ -18,18 +15,27 @@ type AiConfig struct {
 	Models    []string
 	MaxTokens int
 	Timeout   time.Duration
+
+	// Только для провайдеров с OAuth-авторизацией (gigachat):
+	// ключ можно задать целиком (APIKey) или парой ID + секрет.
+	ClientID      string
+	ClientSecret  string
+	Scope         string
+	AuthURL       string
+	TLSSkipVerify bool
 }
 
 type Config struct {
-	Addr               string        // адрес HTTP-сервера, например ":8080"
-	ProviderTimeout    time.Duration // таймаут одного обращения к провайдеру
-	MaxBodyBytes       int64         // лимит размера тела запроса
-	LogFormat          string        // text | json
-	MaxHistoryMessages int           // сколько последних сообщений сессии отправлять модели; 0 — без ограничения
+	Addr            string        // адрес HTTP-сервера, например ":8080"
+	ProviderTimeout time.Duration // таймаут одного обращения к провайдеру
+	MaxBodyBytes    int64         // лимит размера тела запроса
+	LogFormat       string        // text | json
 
 	ModelAliases map[string]string
 
 	Gemini     AiConfig
+	GPTunnel   AiConfig
+	GigaChat   AiConfig
 	OpenRouter AiConfig
 }
 
@@ -75,6 +81,48 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	cfg.GPTunnel.APIKey = env("GPTUNNEL_API_KEY", keys.GPTunnel)
+	cfg.GPTunnel.BaseURL = env("GPTUNNEL_BASE_URL", keys.GPTunnelBaseURL)
+	if cfg.GPTunnel.Models, err = envList("GPTUNNEL_MODELS", keys.GPTunnelModels); err != nil {
+		return Config{}, err
+	}
+	if cfg.GPTunnel.MaxTokens, err = envInt("GPTUNNEL_MAX_TOKENS", 0); err != nil {
+		return Config{}, err
+	}
+	if cfg.GPTunnel.Timeout, err = envDuration("GPTUNNEL_TIMEOUT", 0); err != nil {
+		return Config{}, err
+	}
+
+	cfg.GigaChat.APIKey = env("GIGACHAT_API_KEY", keys.GigaChat)
+	cfg.GigaChat.ClientID = env("GIGACHAT_CLIENT_ID", keys.GigaChatClientID)
+	cfg.GigaChat.ClientSecret = env("GIGACHAT_CLIENT_SECRET", keys.GigaChatClientSecret)
+	cfg.GigaChat.BaseURL = env("GIGACHAT_BASE_URL", keys.GigaChatBaseURL)
+	cfg.GigaChat.Scope = env("GIGACHAT_SCOPE", "")
+	if cfg.GigaChat.Models, err = envList("GIGACHAT_MODELS", keys.GigaChatModels); err != nil {
+		return Config{}, err
+	}
+	if cfg.GigaChat.MaxTokens, err = envInt("GIGACHAT_MAX_TOKENS", 0); err != nil {
+		return Config{}, err
+	}
+	if cfg.GigaChat.Timeout, err = envDuration("GIGACHAT_TIMEOUT", 0); err != nil {
+		return Config{}, err
+	}
+	if cfg.GigaChat.TLSSkipVerify, err = envBool("GIGACHAT_TLS_SKIP_VERIFY", false); err != nil {
+		return Config{}, err
+	}
+	cfg.GigaChat.AuthURL = env("GIGACHAT_AUTH_URL", "")
+
+	cfg.ModelAliases, err = loadAliases()
+	if err != nil {
+		return Config{}, err
+	}
+
+	return cfg, nil
+}
+
+// loadAliases собирает карту псевдонимов: встроенные списки плюс
+// переопределения из LOOK_MODEL_ALIASES.
+func loadAliases() (map[string]string, error) {
 	aliases := make(map[string]string, len(model_aliases.DefaultModelAliases)+
 		len(model_aliases.DefaultFreeModelAliases)+
 		len(keys.ExtraModelAliases))
@@ -88,99 +136,5 @@ func Load() (Config, error) {
 	for alias, model := range keys.ExtraModelAliases {
 		aliases[alias] = model
 	}
-	if cfg.ModelAliases, err = envAliases("LOOK_MODEL_ALIASES", aliases); err != nil {
-		return Config{}, err
-	}
-
-	return cfg, nil
-}
-
-func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-// envList читает список значений через запятую; пустая или отсутствующая
-// переменная даёт значение по умолчанию.
-func envList(key string, def []string) ([]string, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	parts := strings.Split(v, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	if len(out) == 0 {
-		return def, nil
-	}
-	return out, nil
-}
-
-func envDuration(key string, def time.Duration) (time.Duration, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", key, err)
-	}
-	return d, nil
-}
-
-func envInt(key string, def int) (int, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", key, err)
-	}
-	return n, nil
-}
-
-func envInt64(key string, def int64) (int64, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", key, err)
-	}
-	return n, nil
-}
-
-// envAliases читает псевдонимы моделей в формате "псевдоним=модель"
-// через запятую; пустая или отсутствующая переменная даёт значение
-// по умолчанию.
-func envAliases(key string, def map[string]string) (map[string]string, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	out := make(map[string]string)
-	for _, pair := range strings.Split(v, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		alias, model, found := strings.Cut(pair, "=")
-		alias, model = strings.TrimSpace(alias), strings.TrimSpace(model)
-		if !found || alias == "" || model == "" {
-			return nil, fmt.Errorf(`%s: ожидается формат "псевдоним=модель" (сейчас %q)`, key, pair)
-		}
-		out[alias] = model
-	}
-	if len(out) == 0 {
-		return def, nil
-	}
-	return out, nil
+	return envAliases("LOOK_MODEL_ALIASES", aliases)
 }

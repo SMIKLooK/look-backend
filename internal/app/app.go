@@ -15,6 +15,8 @@ import (
 	"look-backend/internal/parser"
 	"look-backend/internal/provider"
 	"look-backend/internal/provider/gemini"
+	"look-backend/internal/provider/gigachat"
+	"look-backend/internal/provider/gptunnel"
 	"look-backend/internal/provider/openrouter"
 	"look-backend/internal/service"
 	"look-backend/internal/transport/httpapi"
@@ -27,38 +29,91 @@ type App struct {
 	server *httpapi.Server
 }
 
+// providerSpec — описание провайдера для регистрации: имя для логов,
+// переменная окружения с ключом, условие включения и конструктор.
+type providerSpec struct {
+	name    string
+	env     string
+	baseURL string
+	enabled bool
+	make    func() provider.Provider
+}
+
 // New собирает приложение из конфигурации.
 func New(cfg config.Config) *App {
 	log := newLogger(cfg.LogFormat)
-
 	registry := provider.NewRegistry()
 
-	if cfg.Gemini.APIKey != "" {
-		registry.Register(gemini.New(gemini.Config{
-			APIKey:    cfg.Gemini.APIKey,
-			BaseURL:   cfg.Gemini.BaseURL,
-			Models:    cfg.Gemini.Models,
-			MaxTokens: cfg.Gemini.MaxTokens,
-			Timeout:   cfg.Gemini.Timeout,
-		}))
-		log.Info("провайдер подключён", "provider", "gemini", "base_url", cfg.Gemini.BaseURL)
-	} else {
-		log.Info("провайдер отключён: не задан API-ключ", "provider", "gemini", "env", "GEMINI_API_KEY")
+	// Порядок = приоритет: прямые провайдеры раньше, OpenRouter последним —
+	// он подхватывает всё в формате "vendor/model". Новый провайдер добавляется
+	// записью в таблицу и секцией в config.Load (см. README → «Как добавить»).
+	specs := []providerSpec{
+		{
+			name: "gemini", env: "GEMINI_API_KEY", baseURL: cfg.Gemini.BaseURL,
+			enabled: cfg.Gemini.APIKey != "",
+			make: func() provider.Provider {
+				return gemini.New(gemini.Config{
+					APIKey:    cfg.Gemini.APIKey,
+					BaseURL:   cfg.Gemini.BaseURL,
+					Models:    cfg.Gemini.Models,
+					MaxTokens: cfg.Gemini.MaxTokens,
+					Timeout:   cfg.Gemini.Timeout,
+				})
+			},
+		},
+		{
+			name: "gptunnel", env: "GPTUNNEL_API_KEY", baseURL: cfg.GPTunnel.BaseURL,
+			enabled: cfg.GPTunnel.APIKey != "",
+			make: func() provider.Provider {
+				return gptunnel.New(gptunnel.Config{
+					APIKey:    cfg.GPTunnel.APIKey,
+					BaseURL:   cfg.GPTunnel.BaseURL,
+					Models:    cfg.GPTunnel.Models,
+					MaxTokens: cfg.GPTunnel.MaxTokens,
+					Timeout:   cfg.GPTunnel.Timeout,
+				})
+			},
+		},
+		{
+			name: "gigachat", env: "GIGACHAT_API_KEY", baseURL: cfg.GigaChat.BaseURL,
+			enabled: cfg.GigaChat.APIKey != "" || (cfg.GigaChat.ClientID != "" && cfg.GigaChat.ClientSecret != ""),
+			make: func() provider.Provider {
+				return gigachat.New(gigachat.Config{
+					APIKey:        cfg.GigaChat.APIKey,
+					ClientID:      cfg.GigaChat.ClientID,
+					ClientSecret:  cfg.GigaChat.ClientSecret,
+					Scope:         cfg.GigaChat.Scope,
+					BaseURL:       cfg.GigaChat.BaseURL,
+					AuthURL:       cfg.GigaChat.AuthURL,
+					Models:        cfg.GigaChat.Models,
+					MaxTokens:     cfg.GigaChat.MaxTokens,
+					Timeout:       cfg.GigaChat.Timeout,
+					TLSSkipVerify: cfg.GigaChat.TLSSkipVerify,
+				})
+			},
+		},
+		{
+			name: "openrouter", env: "OPENROUTER_API_KEY", baseURL: cfg.OpenRouter.BaseURL,
+			enabled: cfg.OpenRouter.APIKey != "",
+			make: func() provider.Provider {
+				return openrouter.New(openrouter.Config{
+					APIKey:    cfg.OpenRouter.APIKey,
+					BaseURL:   cfg.OpenRouter.BaseURL,
+					Models:    cfg.OpenRouter.Models,
+					MaxTokens: cfg.OpenRouter.MaxTokens,
+					Timeout:   cfg.OpenRouter.Timeout,
+				})
+			},
+		},
 	}
 
-	// OpenRouter регистрируется последним: прямые провайдеры приоритетнее,
-	// а он подхватывает всё в формате "vendor/model".
-	if cfg.OpenRouter.APIKey != "" {
-		registry.Register(openrouter.New(openrouter.Config{
-			APIKey:    cfg.OpenRouter.APIKey,
-			BaseURL:   cfg.OpenRouter.BaseURL,
-			Models:    cfg.OpenRouter.Models,
-			MaxTokens: cfg.OpenRouter.MaxTokens,
-			Timeout:   cfg.OpenRouter.Timeout,
-		}))
-		log.Info("провайдер подключён", "provider", "openrouter", "base_url", cfg.OpenRouter.BaseURL)
-	} else {
-		log.Info("провайдер отключён: не задан API-ключ", "provider", "openrouter", "env", "OPENROUTER_API_KEY")
+	for _, s := range specs {
+		if !s.enabled {
+			log.Info("провайдер отключён: не задан API-ключ", "provider", s.name, "env", s.env)
+			continue
+		}
+		registry.Register(s.make())
+		log.Info("провайдер подключён", "provider", s.name, "base_url", s.baseURL)
 	}
 
 	registry.SetAliases(cfg.ModelAliases)
@@ -108,9 +163,9 @@ func (a *App) Run() error {
 // apiURL — адрес API для подключения клиентов; ":8080" означает localhost.
 func apiURL(addr string) string {
 	if strings.HasPrefix(addr, ":") {
-		return "http://localhost" + addr + "/api/v1/process"
+		return "http://localhost" + addr + httpapi.ProcessPath
 	}
-	return "http://" + addr + "/api/v1/process"
+	return "http://" + addr + httpapi.ProcessPath
 }
 
 func newLogger(format string) *slog.Logger {

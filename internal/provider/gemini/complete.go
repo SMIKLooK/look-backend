@@ -1,44 +1,42 @@
 package gemini
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"look-backend/internal/domain"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"look-backend/internal/domain"
+	"look-backend/internal/provider/kit"
 )
 
 // Complete отправляет запрос в /models/{model}:generateContent
 // и возвращает текст ответа модели.
 func (c *Client) Complete(ctx context.Context, req domain.Request) (domain.Response, error) {
-	if err := ctx.Err(); err != nil {
-		return domain.Response{}, domain.WrapError(domain.CodeTimeout, err, "контекст отменён до запроса к gemini")
-	}
-
 	body, err := c.buildPayload(req)
 	if err != nil {
 		return domain.Response{}, err
 	}
 
-	httpResp, err := c.sendRequest(ctx, req.Model, body)
+	endpoint := fmt.Sprintf("%s/models/%s:generateContent", c.baseURL, url.PathEscape(req.Model))
+	httpReq, err := kit.NewRequest(ctx, http.MethodPost, endpoint, body)
+	if err != nil {
+		return domain.Response{}, domain.WrapError(domain.CodeInternal, err, "не удалось сформировать запрос к gemini")
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-goog-api-key", c.apiKey)
+
+	result, err := kit.Do(ctx, c.httpClient, c.Name(), httpReq)
 	if err != nil {
 		return domain.Response{}, err
 	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, httpResp.Body)
-		httpResp.Body.Close()
-	}()
 
-	text, err := c.parseResponse(httpResp)
+	text, err := c.parseResponse(result.StatusCode, result.Body)
 	if err != nil {
 		return domain.Response{}, err
 	}
-
 	return domain.Response{
 		Model:    req.Model,
 		Provider: c.Name(),
@@ -46,6 +44,7 @@ func (c *Client) Complete(ctx context.Context, req domain.Request) (domain.Respo
 	}, nil
 }
 
+// buildPayload собирает тело generateContent; сообщения уже в доменном виде.
 func (c *Client) buildPayload(req domain.Request) ([]byte, error) {
 	payload := generateRequest{}
 	for _, m := range req.Messages {
@@ -59,7 +58,6 @@ func (c *Client) buildPayload(req domain.Request) ([]byte, error) {
 			Parts: []part{{Text: m.Content}},
 		})
 	}
-
 	if c.maxTokens > 0 {
 		payload.GenerationConfig = &generationConfig{MaxOutputTokens: c.maxTokens}
 	}
@@ -67,48 +65,19 @@ func (c *Client) buildPayload(req domain.Request) ([]byte, error) {
 	if err != nil {
 		return nil, domain.WrapError(domain.CodeInternal, err, "не удалось сериализовать запрос к gemini")
 	}
-
 	return body, nil
 }
 
-func (c *Client) sendRequest(
-	ctx context.Context,
-	model string,
-	body []byte,
-) (*http.Response, error) {
-	endpoint := fmt.Sprintf("%s/models/%s:generateContent", c.baseURL, url.PathEscape(model))
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, domain.WrapError(domain.CodeInternal, err, "не удалось сформировать запрос к gemini")
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-goog-api-key", c.apiKey)
-
-	httpResp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, domain.WrapError(domain.CodeTimeout, err, "таймаут запроса к gemini")
-		}
-		return nil, domain.WrapError(domain.CodeProviderFailed, err, "gemini недоступен")
-	}
-
-	return httpResp, nil
-}
-
-func (c *Client) parseResponse(httpResp *http.Response) (string, error) {
-	raw, err := io.ReadAll(io.LimitReader(httpResp.Body, maxResponseBytes))
-	if err != nil {
-		return "", domain.WrapError(domain.CodeProviderFailed, err, "не удалось прочитать ответ gemini")
-	}
-
+// parseResponse извлекает текст ответа: первый кандидат с непустыми частями.
+func (c *Client) parseResponse(status int, raw []byte) (string, error) {
 	var parsed generateResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return "", domain.WrapError(domain.CodeProviderFailed, err,
-			"gemini вернул некорректный ответ (HTTP %d): %s", httpResp.StatusCode, TruncateBody(raw))
+			"gemini вернул некорректный ответ (HTTP %d): %s", status, kit.TruncateBody(raw))
 	}
 
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		msg := fmt.Sprintf("HTTP %d", httpResp.StatusCode)
+	if status < 200 || status >= 300 {
+		msg := fmt.Sprintf("HTTP %d", status)
 		if parsed.Error != nil && parsed.Error.Message != "" {
 			msg += ": " + parsed.Error.Message
 		}
@@ -128,6 +97,5 @@ func (c *Client) parseResponse(httpResp *http.Response) (string, error) {
 			return text, nil
 		}
 	}
-
 	return "", domain.NewError(domain.CodeProviderFailed, "gemini не вернул текст в ответе")
 }

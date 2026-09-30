@@ -8,6 +8,15 @@ var DefaultModelAliases = map[string]string{
 	"дипсик":   "deepseek/deepseek-v4-flash",
 	"deepseek": "deepseek/deepseek-v4-flash",
 
+	"клод":   "claude-4.5-haiku",
+	"claude": "claude-4.5-haiku",
+
+	"гпт": "gpt-4o",
+	"gpt": "gpt-4o",
+
+	"гигачат":  "GigaChat",
+	"gigachat": "GigaChat",
+
 	"фри":  "openrouter/free",
 	"free": "openrouter/free",
 }
@@ -37,14 +46,12 @@ var DefaultFreeModelAliases = map[string]string{
 	"north-code":      "cohere/north-mini-code:free",
 	"линг-мед":        "inclusionai/ling-3.0-flash-sante:free",
 	"ling-med":        "inclusionai/ling-3.0-flash-sante:free",
-	"линг-фин":        "inclusionai/ling-3.0-flash-fin:free",
-	"ling-fin":        "inclusionai/ling-3.0-flash-fin:free",
 	"ликвид":          "liquid/lfm-2.5-2.6b:free",
 	"liquid":          "liquid/lfm-2.5-2.6b:free",
-	"некс":            "nex-agi/nex-n2.5-pro:free",
-	"nex":             "nex-agi/nex-n2.5-pro:free",
-	"некс-мини":       "nex-agi/nex-n2.5-mini:free",
-	"nex-mini":        "nex-agi/nex-n2.5-mini:free",
+	"квэн":            "qwen/qwen3.8-27b:free",
+	"qwen":            "qwen/qwen3.8-27b:free",
+	"кролик":          "stealth/space-bunny-alpha",
+	"bunny":           "stealth/space-bunny-alpha",
 	"дотс":            "dots-studio/dots-3-note-preview:free",
 	"dots":            "dots-studio/dots-3-note-preview:free",
 }
